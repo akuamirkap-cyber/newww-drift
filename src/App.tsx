@@ -326,7 +326,7 @@ export default function App() {
                   </div>
                   <h4 className="text-lg font-black text-white">PRO DRIFT 3D</h4>
                   <p className="text-xs text-neutral-300 line-clamp-3">
-                    Chips × Multiplier, Tandem AI Drift (×1.6), Big Angle (&gt;48°), kecepatan hingga 250 km/j, GTR &amp; Yaris.
+                    Body mobil BMW GLB (lebar 1.26m &amp; panjang 2.56m), Chips × Multiplier, Tandem AI Drift (×1.6), Big Angle (&gt;48°), kecepatan hingga 250 km/j.
                   </p>
                 </div>
                 <div className="pt-4 mt-4 border-t border-neutral-800/80 space-y-2">
@@ -364,7 +364,7 @@ export default function App() {
                   </div>
                   <h4 className="text-lg font-black text-white">SAKURA RC PRO</h4>
                   <p className="text-xs text-neutral-300 line-clamp-3">
-                    Simulasi mobil RC Drift R34 BNR34 di Aula Circuit karpet, Gyro Steering Gain, RB26 Soundbox, dan Pit Bench drawer.
+                    Body mobil BMW GLB 1:10 RC (lebar 1.88m &amp; panjang 3.74m) di Aula Circuit karpet, Gyro Steering Gain, RB26 Soundbox, dan Pit Bench.
                   </p>
                 </div>
                 <div className="pt-4 mt-4 border-t border-neutral-800/80 space-y-2">
@@ -402,7 +402,7 @@ export default function App() {
                   </div>
                   <h4 className="text-lg font-black text-white">EBISU CIRCUIT</h4>
                   <p className="text-xs text-neutral-300 line-clamp-3">
-                    Sirkuit pegunungan Ebisu Touge dengan Triple Drift Engine (Slip, Classic &amp; Sakura RC Gyro), 4 kamera, serta balapan lawan rival.
+                    Body mobil BMW GLB (lebar 1.95m &amp; panjang 4.2m) di Sirkuit Touge Ebisu dengan Triple Drift Engine (Slip, Classic &amp; Sakura RC Gyro).
                   </p>
                 </div>
                 <div className="pt-4 mt-4 border-t border-neutral-800/80 space-y-2">

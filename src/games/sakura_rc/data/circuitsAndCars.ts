@@ -482,11 +482,11 @@ export interface RCBodySpec {
 export const RC_BODIES: RCBodySpec[] = [
   {
     id: 'r34_skyline',
-    name: 'NISSAN SKYLINE GT-R (BNR34) Z-TUNE',
-    chassisCode: 'RDX // YD-2RX SKYLINE SPEC',
-    brandTag: 'RB26DETT WIDEBODY LEXAN',
+    name: 'BMW M3 DRIFT COUPE (GLB)',
+    chassisCode: 'RDX // YD-2RX BMW SPEC',
+    brandTag: 'BMW M3 GLB 1:10 RC BODY',
     description:
-      'Iconic Bayside Blue R34 GT-R with signature quad-ring tail lights, Nismo vented hood, dual-blade GT wing & angled titanium exhaust.',
+      'Authentic BMW M3 3D GLB body shell (lebar 1.88m & panjang 3.74m) dengan tekstur asli, aero splitter, dan handling presisi RWD RC.',
     defaultColor: '#0E64FF',
     defaultAnodize: '#F59E0B',
     defaultNeon: '#00F0FF',

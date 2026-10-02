@@ -22,6 +22,7 @@ import { SessionSummaryModal } from './components/SessionSummaryModal';
 import { MainMenu } from './components/MainMenu';
 import { DesignDocsModal } from './components/DesignDocsModal';
 import { rcSound } from './utils/soundEngine';
+import { BMWAdjustmentModal } from '@/components/BMWAdjustmentModal';
 
 export function SakuraDriftApp({ onSwitchGame }: { onSwitchGame?: () => void }) {
   const [circuit, setCircuit] = useState<CircuitDef>(RC_CIRCUITS[0]);

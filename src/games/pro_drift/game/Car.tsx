@@ -5,8 +5,7 @@ import { sim } from './sim'
 import { useGame } from './store'
 import { CARS, type CarId } from './cars'
 import type { Vehicle } from './physics'
-import { GTRBody } from './models/GTRBody'
-import { YarisBody } from './models/YarisBody'
+import { BMWBody } from './models/BMWBody'
 import { bots, BOT_COUNT, botDef } from './bots'
 
 interface VehicleMeshProps {
@@ -94,11 +93,7 @@ export function VehicleMesh({ vehicle, model, color, label }: VehicleMeshProps) 
   return (
     <group ref={group}>
       <group ref={body} key={model}>
-        {model === 'yaris' ? (
-          <YarisBody color={color} registerBrake={registerBrake} />
-        ) : (
-          <GTRBody color={color} registerBrake={registerBrake} />
-        )}
+        <BMWBody color={color} registerBrake={registerBrake} />
       </group>
       <Wheel x={-spec.wheelX} z={spec.wheelFrontZ} front />
       <Wheel x={spec.wheelX} z={spec.wheelFrontZ} front />

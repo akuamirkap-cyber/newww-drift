@@ -25,6 +25,7 @@ import {
 import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
+import { createBMWCarMesh } from '@/utils/bmwCar';
 
 interface RCDriftCanvas3DProps {
   circuit: CircuitDef;
@@ -1404,7 +1405,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
 
     // --- 6. BUILD 1:10 RWD RC DRIFT CHASSIS + WOBBLE-FREE WHEELS + SKYLINE GT-R ---
     const createRCCarRig = (
-      bodyId: CarCustomization['bodyId'],
+      _bodyId: CarCustomization['bodyId'],
       paintHex: string,
       anodizeHex: string,
       neonHex: string,
@@ -1717,232 +1718,26 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       rrAssembly.position.set(-0.84, 0.35, -1.08);
       chassisGroup.add(rrAssembly);
 
-      // C. LEXAN 1:10 BODY SHELL (Bespoke Nissan Skyline GT-R BNR34 & BNR32!)
-      const isSkyline = bodyId === 'r34_skyline' || bodyId === 'r32_skyline';
-
-      const paintMat = new THREE.MeshStandardMaterial({
+      // C. 1:10 LEXAN BMW M3 BODY SHELL FROM bmw.glb
+      // Width: 1.88 (matches old car fender width: 1.88m)
+      // Length: 3.74 (matches old car body length: 3.74m)
+      // Height: 0.88
+      const bmwRig = createBMWCarMesh({
+        width: 1.88,
+        length: 3.74,
+        height: 0.88,
+        rotY: 0,
+        offsetY: 0.22,
+        offsetZ: 0.0,
         color: paintHex,
-        roughness: shellMode === 'translucent' ? 0.12 : 0.22,
-        metalness: 0.35,
-        envMapIntensity: 0.85,
+        opacity: shellMode === 'translucent' ? 0.45 : 1.0,
         transparent: shellMode === 'translucent',
-        opacity: shellMode === 'translucent' ? 0.36 : 1.0,
+        roughness: shellMode === 'translucent' ? 0.12 : 0.25,
+        metalness: 0.25,
+        mode: 'sakura_rc',
       });
-      bodyPaintMaterials.push(paintMat);
-
-      const glassMat = new THREE.MeshStandardMaterial({
-        color: '#0B1220',
-        roughness: 0.18,
-        metalness: 0.6,
-        envMapIntensity: 0.9,
-        transparent: true,
-        opacity: 0.82,
-      });
-
-      if (isSkyline) {
-        const mainBody = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.44, 3.74), paintMat);
-        mainBody.position.set(0, 0.46, 0);
-        mainBody.castShadow = true;
-        bodyShellGroup.add(mainBody);
-
-        const fenderGeo = new THREE.BoxGeometry(1.88, 0.32, 0.96);
-        const frontFenders = new THREE.Mesh(fenderGeo, paintMat);
-        frontFenders.position.set(0, 0.44, 1.1);
-        const rearFenders = new THREE.Mesh(fenderGeo, paintMat);
-        rearFenders.position.set(0, 0.46, -1.06);
-        bodyShellGroup.add(frontFenders, rearFenders);
-
-        const hoodMesh = new THREE.Mesh(new THREE.BoxGeometry(1.66, 0.11, 1.32), paintMat);
-        hoodMesh.position.set(0, 0.68, 1.02);
-        hoodMesh.rotation.x = 0.05;
-        bodyShellGroup.add(hoodMesh);
-
-        const ventL = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.04, 0.45), carbonMat);
-        ventL.position.set(0.36, 0.73, 1.08);
-        ventL.rotation.x = 0.05;
-        const ventR = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.04, 0.45), carbonMat);
-        ventR.position.set(-0.36, 0.73, 1.08);
-        ventR.rotation.x = 0.05;
-        bodyShellGroup.add(ventL, ventR);
-
-        const cabinMesh = new THREE.Mesh(new THREE.BoxGeometry(1.46, 0.39, 1.48), glassMat);
-        cabinMesh.position.set(0, 0.85, -0.12);
-        bodyShellGroup.add(cabinMesh);
-
-        const roofMesh = new THREE.Mesh(new THREE.BoxGeometry(1.42, 0.06, 1.24), paintMat);
-        roofMesh.position.set(0, 1.05, -0.12);
-        bodyShellGroup.add(roofMesh);
-
-        const trunkDeck = new THREE.Mesh(new THREE.BoxGeometry(1.72, 0.14, 0.76), paintMat);
-        trunkDeck.position.set(0, 0.69, -1.42);
-        bodyShellGroup.add(trunkDeck);
-
-        // ICONIC NISSAN SKYLINE QUAD ROUND AFTERBURNER TAIL LIGHTS
-        const rearPanel = new THREE.Mesh(new THREE.BoxGeometry(1.74, 0.26, 0.06), darkMetalMat);
-        rearPanel.position.set(0, 0.58, -1.86);
-        bodyShellGroup.add(rearPanel);
-
-        const afterburnerRedMat = new THREE.MeshBasicMaterial({ color: '#FF1133' });
-        const afterburnerCoreMat = new THREE.MeshBasicMaterial({ color: '#FF8899' });
-
-        const createSkylineTailLamp = (xPos: number, radius: number) => {
-          const lampGroup = new THREE.Group();
-          const outerRing = new THREE.Mesh(
-            new THREE.RingGeometry(radius * 0.52, radius, 24),
-            afterburnerRedMat
-          );
-          const innerCore = new THREE.Mesh(
-            new THREE.CircleGeometry(radius * 0.35, 16),
-            afterburnerCoreMat
-          );
-          innerCore.position.z = -0.005;
-          lampGroup.add(outerRing, innerCore);
-          lampGroup.position.set(xPos, 0.59, -1.9);
-          lampGroup.rotation.y = Math.PI;
-          return lampGroup;
-        };
-
-        bodyShellGroup.add(createSkylineTailLamp(0.64, 0.125));
-        bodyShellGroup.add(createSkylineTailLamp(0.36, 0.102));
-        bodyShellGroup.add(createSkylineTailLamp(-0.36, 0.102));
-        bodyShellGroup.add(createSkylineTailLamp(-0.64, 0.125));
-
-        const gtrBadgeRear = new THREE.Mesh(
-          new THREE.BoxGeometry(0.16, 0.08, 0.04),
-          new THREE.MeshBasicMaterial({ color: '#EF4444' })
-        );
-        gtrBadgeRear.position.set(0, 0.58, -1.89);
-        bodyShellGroup.add(gtrBadgeRear);
-
-        const wingBlade = new THREE.Mesh(
-          new THREE.BoxGeometry(1.78, 0.06, 0.32),
-          bodyId === 'r34_skyline' ? carbonMat : paintMat
-        );
-        wingBlade.position.set(0, 1.06, -1.68);
-        wingBlade.rotation.x = -0.12;
-
-        const endplateGeo = new THREE.BoxGeometry(0.05, 0.24, 0.38);
-        const endplateL = new THREE.Mesh(endplateGeo, paintMat);
-        endplateL.position.set(0.89, 1.04, -1.68);
-        const endplateR = new THREE.Mesh(endplateGeo, paintMat);
-        endplateR.position.set(-0.89, 1.04, -1.68);
-
-        const stayGeo = new THREE.BoxGeometry(0.06, 0.34, 0.22);
-        const stayL = new THREE.Mesh(stayGeo, rimLipMat);
-        stayL.position.set(0.58, 0.88, -1.66);
-        const stayR = new THREE.Mesh(stayGeo, rimLipMat);
-        stayR.position.set(-0.58, 0.88, -1.66);
-        bodyShellGroup.add(wingBlade, endplateL, endplateR, stayL, stayR);
-
-        const frontLip = new THREE.Mesh(new THREE.BoxGeometry(1.88, 0.08, 0.38), carbonMat);
-        frontLip.position.set(0, 0.21, 1.82);
-        bodyShellGroup.add(frontLip);
-
-        const skirtGeo = new THREE.BoxGeometry(1.9, 0.07, 2.1);
-        const sideSkirts = new THREE.Mesh(skirtGeo, carbonMat);
-        sideSkirts.position.set(0, 0.21, 0);
-        bodyShellGroup.add(sideSkirts);
-
-        const intercooler = new THREE.Mesh(
-          new THREE.BoxGeometry(1.02, 0.26, 0.08),
-          rimLipMat
-        );
-        intercooler.position.set(0, 0.36, 1.88);
-        const couplerL = new THREE.Mesh(
-          new THREE.BoxGeometry(0.12, 0.16, 0.09),
-          new THREE.MeshBasicMaterial({ color: '#00F0FF' })
-        );
-        couplerL.position.set(0.54, 0.34, 1.88);
-        const couplerR = couplerL.clone();
-        couplerR.position.set(-0.54, 0.34, 1.88);
-        bodyShellGroup.add(intercooler, couplerL, couplerR);
-
-        const xenonMat = new THREE.MeshBasicMaterial({ color: '#E0F2FE' });
-        const headL = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.13, 0.08), xenonMat);
-        headL.position.set(0.58, 0.58, 1.87);
-        const headR = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.13, 0.08), xenonMat);
-        headR.position.set(-0.58, 0.58, 1.87);
-
-        const frontGrille = new THREE.Mesh(
-          new THREE.BoxGeometry(0.62, 0.11, 0.08),
-          carbonMat
-        );
-        frontGrille.position.set(0, 0.58, 1.87);
-        const gtrFrontEmblem = new THREE.Mesh(
-          new THREE.BoxGeometry(0.11, 0.06, 0.09),
-          new THREE.MeshBasicMaterial({ color: '#EF4444' })
-        );
-        gtrFrontEmblem.position.set(0, 0.58, 1.88);
-        bodyShellGroup.add(headL, headR, frontGrille, gtrFrontEmblem);
-
-        const exhaustCannon = new THREE.Mesh(
-          new THREE.CylinderGeometry(0.11, 0.11, 0.45, 16),
-          rimLipMat
-        );
-        exhaustCannon.rotation.x = Math.PI / 2;
-        exhaustCannon.rotation.z = -0.22;
-        exhaustCannon.position.set(0.52, 0.25, -1.88);
-        bodyShellGroup.add(exhaustCannon);
-      } else {
-        const mainBody = new THREE.Mesh(new THREE.BoxGeometry(1.76, 0.44, 3.55), paintMat);
-        mainBody.position.set(0, 0.46, 0);
-        mainBody.castShadow = true;
-        bodyShellGroup.add(mainBody);
-
-        const hoodMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(1.62, 0.12, 1.25),
-          bodyId === 'ae86_trueno' ? carbonMat : paintMat
-        );
-        hoodMesh.position.set(0, 0.68, 0.95);
-        hoodMesh.rotation.x = 0.08;
-        bodyShellGroup.add(hoodMesh);
-
-        const cabinLength = bodyId === 'ae86_trueno' ? 1.55 : 1.38;
-        const cabinMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(1.42, 0.38, cabinLength),
-          glassMat
-        );
-        cabinMesh.position.set(0, 0.84, -0.15);
-        bodyShellGroup.add(cabinMesh);
-
-        const roofMesh = new THREE.Mesh(
-          new THREE.BoxGeometry(1.38, 0.06, cabinLength * 0.85),
-          paintMat
-        );
-        roofMesh.position.set(0, 1.04, -0.15);
-        bodyShellGroup.add(roofMesh);
-
-        const frontLip = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.07, 0.35), carbonMat);
-        frontLip.position.set(0, 0.22, 1.72);
-        bodyShellGroup.add(frontLip);
-
-        const intercooler = new THREE.Mesh(
-          new THREE.BoxGeometry(0.95, 0.24, 0.08),
-          rimLipMat
-        );
-        intercooler.position.set(0, 0.36, 1.79);
-        bodyShellGroup.add(intercooler);
-
-        const headlightMat = new THREE.MeshBasicMaterial({ color: '#E0F2FE' });
-        const headL = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.08), headlightMat);
-        headL.position.set(0.58, 0.56, 1.78);
-        const headR = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.12, 0.08), headlightMat);
-        headR.position.set(-0.58, 0.56, 1.78);
-
-        const tailMat = new THREE.MeshBasicMaterial({ color: '#FF1E56' });
-        const tailBar = new THREE.Mesh(new THREE.BoxGeometry(1.56, 0.14, 0.08), tailMat);
-        tailBar.position.set(0, 0.58, -1.78);
-        bodyShellGroup.add(headL, headR, tailBar);
-
-        const wingBlade = new THREE.Mesh(new THREE.BoxGeometry(1.82, 0.06, 0.34), carbonMat);
-        wingBlade.position.set(0, 1.08, -1.62);
-        wingBlade.rotation.x = -0.14;
-        const wingStayL = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.22), anodizeMat);
-        wingStayL.position.set(0.52, 0.88, -1.58);
-        const wingStayR = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.42, 0.22), anodizeMat);
-        wingStayR.position.set(-0.52, 0.88, -1.58);
-        bodyShellGroup.add(wingBlade, wingStayL, wingStayR);
-      }
+      bodyShellGroup.add(bmwRig.group);
+      bodyPaintMaterials.push(bmwRig.material);
 
       bodyShellGroup.visible = shellMode !== 'naked_chassis';
 

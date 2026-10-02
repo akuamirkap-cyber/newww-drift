@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { softCircleTexture } from './effects';
 import type { CarStyle } from './prefs';
+import { createBMWCarMesh } from '@/utils/bmwCar';
 
 export interface CarDims {
   halfWidth: number; // wheel x offset
@@ -35,7 +36,6 @@ export interface CarModel {
 
 const tireMat = new THREE.MeshStandardMaterial({ color: 0x141414, roughness: 0.95 });
 const rimMat = new THREE.MeshStandardMaterial({ color: 0xd9d9d9, roughness: 0.32, metalness: 0.75, envMapIntensity: 1.1 });
-const glassMat = new THREE.MeshStandardMaterial({ color: 0x18222e, roughness: 0.06, metalness: 0.9, envMapIntensity: 1.6 });
 const headMat = new THREE.MeshStandardMaterial({ color: 0xfff6c8, emissive: 0xfff2a8, emissiveIntensity: 1.6 });
 const darkMat = new THREE.MeshStandardMaterial({ color: 0x1f1f24, roughness: 0.8 });
 const interiorMat = new THREE.MeshStandardMaterial({ color: 0x2a2f3a, roughness: 0.95 });
@@ -109,14 +109,6 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
   const body = new THREE.Group();
   group.add(body);
   const dims = CAR_DIMS[style];
-  const paint = new THREE.MeshPhysicalMaterial({
-    color,
-    roughness: 0.28,
-    metalness: 0.15,
-    clearcoat: 1,
-    clearcoatRoughness: 0.12,
-    envMapIntensity: 1.4,
-  });
   const brakeMat = new THREE.MeshStandardMaterial({ color: 0x6b0d0d, emissive: 0xff2a2a, emissiveIntensity: 0.45 });
   const glowMat = new THREE.SpriteMaterial({
     map: softCircleTexture(),
@@ -132,26 +124,21 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
   let steeringWheel: THREE.Group;
 
   if (style === 'standard') {
-    // chassis (front = +z)
-    body.add(box(1.9, 0.5, 4.2, paint, 0, 0.62, 0));
-    body.add(box(1.95, 0.22, 4.3, darkMat, 0, 0.36, 0));
-    body.add(box(1.7, 0.16, 0.9, paint, 0, 0.95, 1.45)); // hood
-    body.add(box(2.0, 0.26, 0.35, darkMat, 0, 0.42, 2.1)); // splitter
-    body.add(box(2.0, 0.26, 0.3, darkMat, 0, 0.42, -2.12)); // diffuser
-    // cabin: separate windshield, side/rear glass, roof
-    const windshield = box(1.56, 0.5, 0.06, glassMat, 0, 1.1, 0.72, false);
-    windshield.rotation.x = -0.35;
-    const glass = box(1.6, 0.5, 1.6, glassMat, 0, 1.1, -0.4); // side + rear glass block
-    const roof = box(1.5, 0.08, 1.7, paint, 0, 1.38, -0.2);
-    body.add(windshield, glass, roof);
-    cockpitHidden.push(windshield, glass, roof);
-    body.add(box(0.08, 0.5, 0.1, paint, -0.78, 1.1, 0.6)); // A pillars
-    body.add(box(0.08, 0.5, 0.1, paint, 0.78, 1.1, 0.6));
+    // BMW GLB body shell: exact width (1.95m) and length (4.2m) of standard chassis
+    const bmwRig = createBMWCarMesh({
+      width: 1.95,
+      length: 4.2,
+      height: 1.08,
+      rotY: 0,
+      offsetY: 0.35,
+      offsetZ: 0.0,
+      color,
+      roughness: 0.28,
+      metalness: 0.2,
+    });
+    body.add(bmwRig.group);
+    cockpitHidden.push(bmwRig.mesh);
     steeringWheel = addInterior(body, { dashY: 0.98, dashZ: 0.52, width: 1.5, wheelZ: 0.25, seatZ: -0.35 });
-    // spoiler
-    body.add(box(0.1, 0.36, 0.12, darkMat, 0.7, 0.98, -1.95));
-    body.add(box(0.1, 0.36, 0.12, darkMat, -0.7, 0.98, -1.95));
-    body.add(box(2.0, 0.08, 0.55, paint, 0, 1.18, -2.0));
     // lights
     body.add(box(0.45, 0.16, 0.08, headMat, 0.62, 0.72, 2.13, false));
     body.add(box(0.45, 0.16, 0.08, headMat, -0.62, 0.72, 2.13, false));
@@ -176,31 +163,21 @@ export function createCar(color: number, style: CarStyle = 'standard'): CarModel
       flames.push(f);
     }
   } else {
-    // ---- TOON: short, tall, chunky ----
-    const bodyGeo = new THREE.BoxGeometry(2.0, 0.8, 3.0, 2, 2, 2);
-    const main = new THREE.Mesh(bodyGeo, paint);
-    main.position.set(0, 0.85, 0);
-    main.castShadow = true;
-    body.add(main);
-    body.add(box(2.06, 0.3, 3.06, darkMat, 0, 0.5, 0)); // chunky sills / bumpers
-    body.add(box(2.14, 0.36, 0.4, darkMat, 0, 0.55, 1.45)); // front bumper
-    body.add(box(2.14, 0.36, 0.4, darkMat, 0, 0.55, -1.45)); // rear bumper
-    body.add(box(1.7, 0.12, 0.9, paint, 0, 1.3, 0.95)); // hood bulge
-    body.add(box(0.5, 0.16, 0.5, darkMat, -0.45, 1.36, 1.05, false)); // hood scoop
-    // big cabin
-    const windshield = box(1.66, 0.75, 0.06, glassMat, 0, 1.68, 0.5, false);
-    windshield.rotation.x = -0.28;
-    const glass = box(1.7, 0.75, 1.35, glassMat, 0, 1.68, -0.35); // side + rear glass
-    const roof = box(1.8, 0.14, 1.75, paint, 0, 2.1, -0.15);
-    body.add(windshield, glass, roof);
-    cockpitHidden.push(windshield, glass, roof);
-    body.add(box(0.1, 0.75, 0.12, paint, -0.84, 1.68, 0.38)); // A pillars
-    body.add(box(0.1, 0.75, 0.12, paint, 0.84, 1.68, 0.38));
+    // ---- TOON: short, tall, chunky BMW GLB ----
+    const bmwRig = createBMWCarMesh({
+      width: 2.06,
+      length: 3.1,
+      height: 1.25,
+      rotY: 0,
+      offsetY: 0.42,
+      offsetZ: 0.0,
+      color,
+      roughness: 0.28,
+      metalness: 0.2,
+    });
+    body.add(bmwRig.group);
+    cockpitHidden.push(bmwRig.mesh);
     steeringWheel = addInterior(body, { dashY: 1.25, dashZ: 0.3, width: 1.6, wheelZ: 0.05, seatZ: -0.45 });
-    // stubby spoiler + roof rack light
-    body.add(box(0.12, 0.3, 0.14, darkMat, 0.75, 1.4, -1.3));
-    body.add(box(0.12, 0.3, 0.14, darkMat, -0.75, 1.4, -1.3));
-    body.add(box(2.1, 0.1, 0.5, paint, 0, 1.58, -1.38));
     // big round headlights
     const eyeGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.1, 14);
     for (const sx of [-0.6, 0.6]) {

@@ -7,6 +7,7 @@ import { TuningPanel, TuningSummary } from './TuningPanel'
 import { ScoreHud } from './ScoreHud'
 import { KMH } from './GameLoop'
 import { tuning, setEngineMode } from './tuning'
+import { BMWAdjustmentModal } from '@/components/BMWAdjustmentModal'
 
 function fmt(t: number) {
   const m = Math.floor(t / 60)
@@ -17,19 +18,29 @@ function fmt(t: number) {
 export function UI() {
   const phase = useGame((s) => s.phase)
   const [, setTicker] = useState(0)
+  const [showBMWAdjust, setShowBMWAdjust] = useState(false)
   const isSakura = tuning.engineMode === 'sakura_rc'
 
   return (
     <div className="absolute inset-0 pointer-events-none select-none font-sans">
-      {phase === 'menu' && <Menu />}
+      {phase === 'menu' && <Menu onOpenBMWAdjust={() => setShowBMWAdjust(true)} />}
       {(phase === 'playing' || phase === 'countdown') && <Hud />}
       {phase === 'countdown' && <Countdown />}
       {(phase === 'playing' || phase === 'countdown') && <TouchControls />}
       {phase === 'finished' && <Results />}
       <Popups />
 
-      {/* Live Engine Toggle (bisa diganti seketika saat balapan berlangsung) */}
+      {/* Live Engine Toggle & BMW Adjust Button */}
       <div className="pointer-events-auto absolute top-3 right-16 z-20 flex items-center gap-2">
+        <button
+          onClick={() => setShowBMWAdjust(true)}
+          className="px-3 py-1.5 rounded-full backdrop-blur-md text-xs font-black border border-cyan-400/80 bg-neutral-900/85 text-cyan-300 hover:bg-cyan-950/80 shadow-lg transition active:scale-95 flex items-center gap-1.5 cursor-pointer"
+          title="Atur panjang, lebar, tinggi dan letak ketinggian body BMW GLB"
+        >
+          <span>📐</span>
+          <span>BODY BMW</span>
+        </button>
+
         <button
           onClick={() => {
             const next = isSakura ? 'pro_drift' : 'sakura_rc'
@@ -50,6 +61,12 @@ export function UI() {
       </div>
 
       <MuteButton />
+
+      <BMWAdjustmentModal
+        mode="pro_drift"
+        isOpen={showBMWAdjust}
+        onClose={() => setShowBMWAdjust(false)}
+      />
     </div>
   )
 }
@@ -69,7 +86,7 @@ function MuteButton() {
   )
 }
 
-function Menu() {
+function Menu({ onOpenBMWAdjust }: { onOpenBMWAdjust?: () => void }) {
   const { mode, setMode, carColor, setCarColor, carModel, setCarModel, setPhase, best } = useGame()
   const [showTuning, setShowTuning] = useState(false)
   const [, setMenuTicker] = useState(0)
@@ -197,6 +214,19 @@ function Menu() {
             </button>
           </div>
         </div>
+
+        {onOpenBMWAdjust && (
+          <button
+            onClick={onOpenBMWAdjust}
+            className="w-full mb-3 py-2 px-3 rounded-2xl bg-cyan-950/40 hover:bg-cyan-900/50 border border-cyan-400/50 text-cyan-300 font-bold text-xs flex items-center justify-between transition cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <span>📐</span>
+              <span>Adjust Ukuran Body BMW GLB</span>
+            </div>
+            <span className="text-[10px] bg-cyan-400/20 px-2 py-0.5 rounded font-mono">Panjang · Lebar · Tinggi</span>
+          </button>
+        )}
 
         <TuningSummary onOpen={() => setShowTuning(true)} />
 
