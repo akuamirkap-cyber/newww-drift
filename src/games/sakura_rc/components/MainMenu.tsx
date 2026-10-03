@@ -282,12 +282,13 @@ export const MainMenu: React.FC<MainMenuProps> = ({
                 <Segment
                   label="BOT AI"
                   options={[
+                    { v: 'legend', label: 'LEGEND' },
                     { v: 'pro', label: 'PRO' },
                     { v: 'chill', label: 'SANTAI' },
                   ]}
                   value={tuning.botPace ?? 'pro'}
                   onChange={(v) =>
-                    onChangeTuning({ ...tuning, botPace: v as 'pro' | 'chill' })
+                    onChangeTuning({ ...tuning, botPace: v as 'legend' | 'pro' | 'chill' })
                   }
                 />
                 <Segment

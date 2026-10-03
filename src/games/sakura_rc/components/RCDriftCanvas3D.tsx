@@ -26,6 +26,19 @@ import { buildWorld as buildHarunaWorld } from '../../haruna_new/game/world';
 import { START_ALT as HARUNA_START_ALT } from '../../haruna_new/track/haruna';
 import { Sky as HarunaSky } from '../../haruna_new/game/sky';
 import { createBMWCarMesh } from '@/utils/bmwCar';
+import {
+  LanePlan,
+  ProDriftBot,
+  TrackSampler,
+  clamp,
+  makeContactResult,
+  makePersonality,
+  makeTrackPose,
+  resolveRcContact,
+  type BotInput,
+  type ContactBody,
+} from '../game/proBot';
+import type { BotPace } from '../types/rcDrift';
 
 interface RCDriftCanvas3DProps {
   circuit: CircuitDef;
@@ -2148,6 +2161,72 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       collisionCooldown: 0,
     };
 
+    /* --- 8B. PRO DRIFT BOT v2: SAMPLER, LANE PLAN, DRIVER --------------
+     * Bot lama: heading di-lerp mentah + target offset lateral selalu ke
+     * dinding + tabrakan impuls 2.6..14.5 m/s. Sekarang: sampler spline
+     * precomputed (bebas getPointAt per frame), garis balap out-in-out yang
+     * halus, driver orde-2 dengan batas akselerasi lateral, dan solver
+     * kontak kontinu. Personality di-seed per sesi => tidak gampang ditebak. */
+    const BOT_CAR_MARGIN = 0.95;
+    const botSampler = new TrackSampler(trackCurve, {
+      closed: routeClosed,
+      samples: isHarunaMap ? 1800 : 900,
+    });
+    const botSeed = Math.floor(Math.random() * 0x7fffffff);
+    const botPaceTier: BotPace = tuning.botPace ?? 'pro';
+    const botPersonality = makePersonality(botSeed, botPaceTier);
+    const botLane = new LanePlan({
+      sampler: botSampler,
+      clippingZones: circuit.clippingZones,
+      halfWidth,
+      wallMargin: BOT_CAR_MARGIN + botPersonality.wallMargin,
+      lineGain: botPersonality.lineGain,
+      zoneGain: 0.9,
+    });
+    const bot = new ProDriftBot({
+      personality: botPersonality,
+      x: aiStartPos.x,
+      z: aiStartPos.z,
+      heading: aiInitialHeading,
+      t: aiStartT,
+      halfWidth,
+      carMargin: BOT_CAR_MARGIN,
+    });
+    const botInput: BotInput = {
+      dt: 0,
+      time: 0,
+      raceStarted: false,
+      halfWidth,
+      carMargin: BOT_CAR_MARGIN,
+      aLatScale: 1,
+      speedFactor: 1,
+      sampler: botSampler,
+      lane: botLane,
+      playerVisible: false,
+      playerT: aiStartT,
+      playerSpeed: 0,
+      playerLateral: 0,
+      playerHeading: 0,
+    };
+    const botPoseScratch = makeTrackPose();
+    const playerBody: ContactBody = { x: 0, z: 0, heading: 0, velAngle: 0, speed: 0, yawRate: 0 };
+    const botBody: ContactBody = { x: 0, z: 0, heading: 0, velAngle: 0, speed: 0, yawRate: 0 };
+    const contactOut = makeContactResult();
+    // Parameter kontak: halus & bisa didorong, tapi tidak pernah "mental".
+    const RC_CONTACT_OPTS = {
+      sphereOffset: 1.05,
+      sphereRadius: 0.92,
+      restitution: 0.3,
+      friction: 0.45,
+      separationSpeed: 1.5,
+      maxImpulse: 5.2,
+      torqueScale: 0.15,
+      maxTorque: 0.95,
+      maxSpeed: 30,
+    };
+    const _contactPoint = new THREE.Vector3();
+    let botBodyShake = 0;
+
     const triggerCallout = (
       text: string,
       subtext: string,
@@ -2971,8 +3050,8 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
         }
       }
 
-      // 7. AUTONOMOUS PHYSICS-DRIVEN PRO DRIFT AI BOT & TWO-WAY COLLISION ENGINE
-      // Active in Tsuiso Tandem & Free Drift so you can always battle, tandem, or trade paint!
+      // 7. PRO DRIFT BOT v2 — SMOOTH PRO LINE DRIVER & SOFT TWO-WAY CONTACT
+      // Aktif di Tsuiso Tandem & Free Drift supaya bot selalu bisa diajak tandem.
       const showLeadCar = curMode === 'tsuiso' || curMode === 'freedrift';
       leadRig.root.visible = showLeadCar;
       tetherLine.visible = false;
@@ -2981,326 +3060,168 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
       let tsuisoSyncActive = false;
 
       if (showLeadCar) {
-        // A. Find AI Bot's current spline progress & track frame
-        const aiClosest = findClosestSplineT(aiState.pos);
-        aiState.lastSplineT = aiClosest.t;
-        const aiTrackPt = trackCurve.getPointAt(aiClosest.t);
-        const aiTrackTan = trackCurve.getTangentAt(aiClosest.t).normalize();
-        const aiTrackNorm = new THREE.Vector3(-aiTrackTan.z, 0, aiTrackTan.x);
-        const aiTrackAngle = Math.atan2(aiTrackTan.x, aiTrackTan.z);
+        /* A. JALANKAN OTAK BOT — substepped 120 Hz, bebas alokasi per frame. */
+        botInput.dt = dt;
+        botInput.time = now * 0.001;
+        botInput.raceStarted = state.raceStarted;
+        botInput.halfWidth = halfWidth;
+        botInput.carMargin = BOT_CAR_MARGIN;
+        botInput.aLatScale = isHarunaMap ? 1.05 : 1.0;
+        botInput.speedFactor = speedFactor;
+        botInput.playerVisible = true;
+        botInput.playerT = closest.t;
+        botInput.playerSpeed = currentSpeed;
+        botInput.playerLateral = lateralOffset;
+        botInput.playerHeading = state.heading;
+        bot.step(botInput);
 
-        // B. Pro D1GP Clipping Zone Hunter & Aggressive Racing Line Look-Ahead
-        let foundZoneOffset: number | null = null;
-        for (const cz of circuit.clippingZones) {
-          let distAhead = cz.t - aiClosest.t;
-          if (distAhead < -0.5) distAhead += 1;
-          if (distAhead > 0.5) distAhead -= 1;
-          if (distAhead >= -0.01 && distAhead <= 0.14) {
-            // Pro AI dives deep into Outer Zones & Wall Kisses!
-            foundZoneOffset = cz.offset * (halfWidth - 1.15);
-            break;
-          }
-        }
-
-        // Multi-sample look-ahead curvature for early high-speed Furidashi entry
-        const tanNear = trackCurve.getTangentAt((aiClosest.t + 0.016) % 1).normalize();
-        const tanMid = trackCurve.getTangentAt((aiClosest.t + 0.042) % 1).normalize();
-        const tanFar = trackCurve.getTangentAt((aiClosest.t + 0.075) % 1).normalize();
-
-        const curvNear = wrapAngle(
-          Math.atan2(tanNear.x, tanNear.z) - aiTrackAngle
-        );
-        const curvMid = wrapAngle(
-          Math.atan2(tanMid.x, tanMid.z) - Math.atan2(tanNear.x, tanNear.z)
-        );
-        const curvFar = wrapAngle(
-          Math.atan2(tanFar.x, tanFar.z) - Math.atan2(tanMid.x, tanMid.z)
-        );
-
-        const blendedCurvature = curvNear * 1.5 + curvMid * 1.9 + curvFar * 1.0;
-
-        if (foundZoneOffset !== null) {
-          aiState.lateralOffsetTarget = foundZoneOffset;
-        } else {
-          // Swing wide to outer wall on sweepers like a real D1GP Lead Car
-          aiState.lateralOffsetTarget =
-            -Math.sign(blendedCurvature || 1) * (halfWidth * 0.48);
-        }
-        aiState.currentLateralOffset = THREE.MathUtils.lerp(
-          aiState.currentLateralOffset,
-          aiState.lateralOffsetTarget,
-          dt * 4.8
-        );
-
-        // C. High-Speed Pro Pacing & Active AI ESC Turbo Boost
-        const lookAheadT = (aiClosest.t + 0.038) % 1;
-        const lookPt = trackCurve.getPointAt(lookAheadT);
-        const lookTan = trackCurve.getTangentAt(lookAheadT).normalize();
-        const lookNorm = new THREE.Vector3(-lookTan.z, 0, lookTan.x);
-        const targetWorldPt = lookPt
-          .clone()
-          .addScaledVector(lookNorm, aiState.currentLateralOffset);
-
-        let splineGap = aiClosest.t - closest.t;
-        if (splineGap < -0.5) splineGap += 1;
-        if (splineGap > 0.5) splineGap -= 1;
-
-        // Pro RC drifters maintain 90%–100% throttle speed through corners!
-        const cornerSlowdown = Math.max(
-          0.90,
-          1.0 - Math.min(0.10, Math.abs(blendedCurvature) * 0.22)
-        );
-        // Fast competitive pro pace (24.8 base, up to 28.5 on Turbo Battle Overdrive!)
-        const rubberBandFactor =
-          splineGap < 0.018
-            ? 1.15
-            : splineGap > 0.14
-            ? 0.92
-            : 1.04;
-        const aiBaseSpeed = curTuning.botPace === 'chill' ? 19.5 : 24.8;
-        const targetAiSpeed = state.raceStarted
-          ? aiBaseSpeed * speedFactor * cornerSlowdown * rubberBandFactor
-          : 0;
-
-        aiState.speed = THREE.MathUtils.lerp(aiState.speed, targetAiSpeed, dt * 5.2);
-
-        // Crisp Pro Line Tracking
-        const toTargetVec = new THREE.Vector3().subVectors(targetWorldPt, aiState.pos);
-        const desiredVelAngle = Math.atan2(toTargetVec.x, toTargetVec.z);
-        const velAngleError = wrapAngle(desiredVelAngle - aiState.velocityAngle);
-        aiState.velocityAngle = wrapAngle(
-          aiState.velocityAngle + velAngleError * 6.8 * dt
-        );
-
+        /* B. MIRROR STATE bot -> aiState (dipakai HUD, smoke, kamera, tether). */
+        aiState.lastSplineT = bot.t;
+        aiState.heading = bot.heading;
+        aiState.velocityAngle = bot.velAngle;
+        aiState.speed = Math.abs(bot.speed);
         aiState.vel.set(
-          Math.sin(aiState.velocityAngle) * aiState.speed,
+          Math.sin(bot.velAngle) * bot.speed,
           0,
-          Math.cos(aiState.velocityAngle) * aiState.speed
+          Math.cos(bot.velAngle) * bot.speed
         );
-        aiState.pos.addScaledVector(aiState.vel, dt);
-
-        // D. Deep Pro D1GP Slip Angle (up to 66 deg / 1.15 rad) & Snappy Manji Transitions
-        const manjiWave =
-          Math.abs(blendedCurvature) < 0.08
-            ? Math.sin(now * 0.0055) * 0.36
-            : 0;
-        const rawTargetSlip = THREE.MathUtils.clamp(
-          blendedCurvature * 2.85 + manjiWave,
-          -1.15, // ~66 deg pro competition lock!
-          1.15
-        );
-        aiState.smoothTargetSlip = THREE.MathUtils.lerp(
-          aiState.smoothTargetSlip,
-          rawTargetSlip,
-          dt * 6.8
-        );
-
-        const desiredAiHeading = wrapAngle(
-          aiState.velocityAngle + aiState.smoothTargetSlip
-        );
-        const aiHeadingErr = wrapAngle(desiredAiHeading - aiState.heading);
-
-        // High-response Pro Gyro & Servo Snap
-        const aiAngularAccel = aiHeadingErr * 38.0 - aiState.angularVel * 7.2;
-        aiState.angularVel += aiAngularAccel * dt;
-        aiState.heading = wrapAngle(aiState.heading + aiState.angularVel * dt);
-
-        // Keep AI Bot inside track walls with smooth wall-ride cushion
-        const aiToCenter = new THREE.Vector3().subVectors(aiState.pos, aiTrackPt);
-        const aiLatOffset = aiToCenter.dot(aiTrackNorm);
-        const aiMaxLat = halfWidth - 0.7;
-        if (Math.abs(aiLatOffset) > aiMaxLat) {
-          const sgn = Math.sign(aiLatOffset);
-          aiState.pos.addScaledVector(aiTrackNorm, -(aiLatOffset - sgn * aiMaxLat));
-          aiState.velocityAngle = wrapAngle(
-            aiState.velocityAngle + wrapAngle(aiTrackAngle - aiState.velocityAngle) * 0.35
-          );
-        }
-
-        // E. TWO-WAY MUTUAL CAR-TO-CAR COLLISION PHYSICS (Player <-> AI Bot)
-        // 3 collision spheres per car (Front Bumper, Center Chassis, Rear Bumper)
+        aiState.frontSteerAngle = bot.steerAngle;
+        aiState.smoothTargetSlip = bot.slip;
+        aiState.currentLateralOffset = bot.lateral;
+        aiState.lateralOffsetTarget = botLane.offsetAt(bot.t);
         aiState.collisionCooldown = Math.max(0, aiState.collisionCooldown - dt);
-
-        const getCarSpheres = (pos: THREE.Vector3, heading: number) => {
-          const fwdX = Math.sin(heading);
-          const fwdZ = Math.cos(heading);
-          return [
-            {
-              offset: 1.05,
-              center: new THREE.Vector3(pos.x + fwdX * 1.05, 0, pos.z + fwdZ * 1.05),
-              radius: 0.9,
-            },
-            {
-              offset: 0.0,
-              center: new THREE.Vector3(pos.x, 0, pos.z),
-              radius: 0.94,
-            },
-            {
-              offset: -1.05,
-              center: new THREE.Vector3(pos.x - fwdX * 1.05, 0, pos.z - fwdZ * 1.05),
-              radius: 0.9,
-            },
-          ];
-        };
-
-        const playerSpheres = getCarSpheres(state.pos, state.heading);
-        const aiSpheres = getCarSpheres(aiState.pos, aiState.heading);
-
-        let deepestOverlap = 0;
-        let bestNormal = new THREE.Vector3(1, 0, 0);
-        let contactPoint = new THREE.Vector3();
-        let pHitOffset = 0;
-        let aiHitOffset = 0;
-
-        for (const ps of playerSpheres) {
-          for (const as of aiSpheres) {
-            const dx = ps.center.x - as.center.x;
-            const dz = ps.center.z - as.center.z;
-            const dist = Math.hypot(dx, dz);
-            const minSep = ps.radius + as.radius;
-            if (dist < minSep) {
-              const overlap = minSep - dist;
-              if (overlap > deepestOverlap) {
-                deepestOverlap = overlap;
-                if (dist > 0.0001) {
-                  bestNormal.set(dx / dist, 0, dz / dist);
-                } else {
-                  bestNormal.set(Math.sin(state.heading), 0, Math.cos(state.heading));
-                }
-                contactPoint
-                  .copy(ps.center)
-                  .add(as.center)
-                  .multiplyScalar(0.5);
-                contactPoint.y = state.pos.y + 0.42;
-                pHitOffset = ps.offset;
-                aiHitOffset = as.offset;
-              }
-            }
-          }
+        if (isHarunaMap) {
+          botSampler.poseAtT(bot.t, botPoseScratch);
+          aiState.pos.set(bot.x, botPoseScratch.y + harunaRideHeight, bot.z);
+        } else {
+          aiState.pos.set(bot.x, harunaRideHeight, bot.z);
         }
 
-        if (deepestOverlap > 0) {
-          // 1. Separate both cars equally so neither clips inside the other
-          const pushDist = deepestOverlap * 0.54;
-          state.pos.addScaledVector(bestNormal, pushDist);
-          aiState.pos.addScaledVector(bestNormal, -pushDist);
+        /* C. KONTAK HALUS PEMAIN <-> BOT (solver kontinu, tidak teleport). */
+        playerBody.x = state.pos.x;
+        playerBody.z = state.pos.z;
+        playerBody.heading = state.heading;
+        playerBody.velAngle = state.velocityAngle;
+        playerBody.speed = Math.max(0, currentSpeed);
+        playerBody.yawRate = 0;
+        botBody.x = bot.x;
+        botBody.z = bot.z;
+        botBody.heading = bot.heading;
+        botBody.velAngle = bot.velAngle;
+        botBody.speed = Math.abs(bot.speed);
+        botBody.yawRate = 0;
 
-          // 2. Two-Way Momentum & Velocity Impulse Exchange
-          const rvx = state.vel.x - aiState.vel.x;
-          const rvz = state.vel.z - aiState.vel.z;
-          const velAlongNormal = rvx * bestNormal.x + rvz * bestNormal.z;
+        // dt kontak dibatasi 1/60 s: separasi maksimum ~2.7 cm per frame.
+        resolveRcContact(playerBody, botBody, Math.min(dt, 1 / 60), RC_CONTACT_OPTS, contactOut);
 
-          // Even if velAlongNormal is small during a side-swipe, apply a minimum bumper shove
-          const restitution = 0.58;
-          const rawImpulse =
-            velAlongNormal < 0 ? -(1 + restitution) * velAlongNormal * 0.55 : 1.8;
-          const impulseMag = Math.max(2.6, Math.min(14.5, rawImpulse));
-
-          // Apply impulse to Player Car (`state.vel`) AND AI Bot (`aiState.vel`)
-          state.vel.x += bestNormal.x * impulseMag;
-          state.vel.z += bestNormal.z * impulseMag;
-
-          aiState.vel.x -= bestNormal.x * impulseMag;
-          aiState.vel.z -= bestNormal.z * impulseMag;
-
-          // Update speeds & travel angles from new post-collision velocities!
-          const newPlayerSpd = state.vel.length();
-          if (newPlayerSpd > 0.5) {
-            currentSpeed = Math.min(maxSpeed * 1.15, newPlayerSpd);
-            state.velocityAngle = Math.atan2(state.vel.x, state.vel.z);
+        if (contactOut.hit) {
+          // Pemain: posisi + kecepatan + spin terbatas (tidak pernah "mental").
+          state.pos.x = playerBody.x;
+          state.pos.z = playerBody.z;
+          if (playerBody.speed > 0.05) {
+            currentSpeed = Math.min(maxSpeed * 1.12, playerBody.speed);
+            state.velocityAngle = playerBody.velAngle;
+            state.vel.set(
+              Math.sin(state.velocityAngle) * currentSpeed,
+              0,
+              Math.cos(state.velocityAngle) * currentSpeed
+            );
           }
+          state.angularVel = clamp(state.angularVel + contactOut.spinA * 0.85, -2.4, 2.4);
 
-          const newAiSpd = aiState.vel.length();
-          if (newAiSpd > 0.5) {
-            aiState.speed = Math.min(26, newAiSpd);
-            aiState.velocityAngle = Math.atan2(aiState.vel.x, aiState.vel.z);
-          }
+          // Bot: posisi/kecepatan hasil solver + "tendangan" spin yang
+          // langsung diredam drivetrain & mode RECOVER-nya.
+          bot.x = botBody.x;
+          bot.z = botBody.z;
+          bot.speed = botBody.speed;
+          bot.velAngle = botBody.velAngle;
+          const botFwdX = Math.sin(bot.heading);
+          const botFwdZ = Math.cos(bot.heading);
+          const hitFromBehind =
+            contactOut.normalX * botFwdX + contactOut.normalZ * botFwdZ < -0.3;
+          bot.notifyContact(contactOut.kind, hitFromBehind, contactOut.spinB);
+          botBodyShake = Math.min(1, 0.35 + contactOut.impulse / 5.0);
 
-          // 3. Realistic Yaw Spin Torque (PIT maneuver / bumper tap rotation)
-          // Cross product of car forward vector and collision normal scaled by hit offset
-          const pCross =
-            Math.sin(state.heading) * bestNormal.z -
-            Math.cos(state.heading) * bestNormal.x;
-          const aiCross =
-            Math.sin(aiState.heading) * bestNormal.z -
-            Math.cos(aiState.heading) * bestNormal.x;
-
-          state.angularVel += pCross * pHitOffset * impulseMag * 0.32;
-          aiState.angularVel -= aiCross * aiHitOffset * impulseMag * 0.38;
-
-          // 4. Spawn 3D Collision Sparks, Sound & Judge Callout
-          spawnCollisionSparks(contactPoint, impulseMag > 6 ? 10 : 5);
+          spawnCollisionSparks(
+            _contactPoint.set(contactOut.pointX, state.pos.y + 0.42, contactOut.pointZ),
+            contactOut.impulse > 3.6 ? 10 : 5
+          );
 
           if (aiState.collisionCooldown <= 0) {
-            aiState.collisionCooldown = 0.28;
-            rcSound.playCollisionSound(impulseMag / 12);
+            aiState.collisionCooldown = 0.42;
+            rcSound.playCollisionSound(Math.min(1, 0.22 + contactOut.impulse / 5.6));
 
-            if (impulseMag < 6.5 && driftDegAbs > 15) {
-              // Door-to-door tandem rub bonus!
+            if (contactOut.kind === 'rub' && driftDegAbs > 15) {
               state.comboPoints += 200;
               triggerCallout(
                 'DOOR-TO-DOOR RUB! +200',
-                'AGGRESSIVE TSUISO PAINT TRADE',
+                'TSUISO PAINT TRADE // SENGGOLAN HALUS',
                 'volt'
               );
-            } else {
+            } else if (contactOut.kind === 'clash') {
               triggerCallout(
                 'BUMPER CLASH! // CONTACT',
                 'GYRO COUNTER-STEER RECOVERY',
                 'amber'
               );
+            } else {
+              triggerCallout(
+                'SENGGOLAN RAPI // CONTACT',
+                'BOT MENYESUAIKAN GARIS DRIFT',
+                'cyan'
+              );
             }
           }
+        } else {
+          botBodyShake = Math.max(0, botBodyShake - dt * 3.5);
         }
 
-        // F. Apply AI Bot Visual Transforms, Counter-Steer, Smoke & Skidmarks
-        if (isHarunaMap) aiState.pos.y = aiClosest.height + harunaRideHeight;
+        /* D. VISUAL: transform, Ackermann counter-steer, body roll, roda. */
         leadRig.root.position.copy(aiState.pos);
         leadRig.root.rotation.y = aiState.heading;
 
-        const aiSlipSignedRad = wrapAngle(aiState.heading - aiState.velocityAngle);
+        const aiSlipSignedRad = bot.slip;
         const aiDriftDegSigned = THREE.MathUtils.radToDeg(aiSlipSignedRad);
         const aiDriftDegAbs = Math.abs(aiDriftDegSigned);
 
-        // AI High-Angle Ackermann Front Wheel Counter-Steer (points into travel vector!)
-        const aiCounterSteerTarget = THREE.MathUtils.clamp(
-          -aiSlipSignedRad * 1.05,
-          -THREE.MathUtils.degToRad(75),
-          THREE.MathUtils.degToRad(75)
-        );
-        aiState.frontSteerAngle = THREE.MathUtils.lerp(
-          aiState.frontSteerAngle,
-          aiCounterSteerTarget,
-          dt * 18
-        );
-        leadRig.flKnuckle.rotation.y = aiState.frontSteerAngle;
-        leadRig.frKnuckle.rotation.y = aiState.frontSteerAngle;
-        leadRig.servoHorn.rotation.y = aiState.frontSteerAngle * 0.8;
-        leadRig.coolingFan.rotation.y += dt * 35;
+        // Sudut setir sudah rate-limited oleh servo bot (tidak pernah snap).
+        const steerVis = bot.steerAngle + botBodyShake * 0.04;
+        leadRig.flKnuckle.rotation.y = steerVis;
+        leadRig.frKnuckle.rotation.y = steerVis;
+        leadRig.servoHorn.rotation.y = steerVis * 0.8;
+        leadRig.coolingFan.rotation.y += dt * (28 + bot.throttle * 26);
 
-        // AI Dynamic Body Roll & Pitch
+        // Body roll dari drift + beban lateral; pitch dari akselerasi motor.
+        const aiLatAccel = bot.speed * bot.yawRate;
+        const shellRoll = THREE.MathUtils.degToRad(
+          clamp(aiDriftDegSigned * 0.075 + aiLatAccel * 0.16, -5.5, 5.5)
+        );
         leadRig.bodyShellGroup.rotation.z = THREE.MathUtils.lerp(
           leadRig.bodyShellGroup.rotation.z,
-          THREE.MathUtils.degToRad(
-            Math.max(-4.5, Math.min(4.5, aiDriftDegSigned * 0.08))
-          ),
-          dt * 10
+          shellRoll,
+          1 - Math.exp(-9 * dt)
         );
-        leadRig.bodyShellGroup.rotation.x = -0.02;
+        const shellPitch =
+          THREE.MathUtils.degToRad(clamp(-bot.accel * 0.22, -3.2, 3.2)) - 0.01;
+        leadRig.bodyShellGroup.rotation.x = THREE.MathUtils.lerp(
+          leadRig.bodyShellGroup.rotation.x,
+          shellPitch,
+          1 - Math.exp(-8 * dt)
+        );
 
-        // AI Exhaust Flame on deep slides
-        leadRig.turboSparkMesh.visible =
-          aiDriftDegAbs > 26 && frameCounter % 4 === 0;
+        // Exhaust flame saat slide dalam.
+        leadRig.turboSparkMesh.visible = aiDriftDegAbs > 26 && frameCounter % 4 === 0;
 
-        // AI Wobble-Free Wheel Rotation
+        // RWD wheelspin: roda belakang berputar lebih cepat saat slip besar.
+        const wheelSpinBoost = 1 + Math.min(1.3, Math.abs(aiSlipSignedRad) * 1.05);
         leadRig.spinAxles.forEach((axle, idx) => {
-          const rate = idx < 2 ? aiState.speed * 2.3 : aiState.speed * 2.8 + 14;
+          const rate =
+            idx < 2 ? bot.speed * 2.3 : bot.speed * 2.9 * wheelSpinBoost + 14;
           axle.rotation.x += rate * dt;
         });
 
-        // AI Bot Tire Smoke (Jalur A Hemat: (12 + strength * 12) * amount) & Skidmarks
-        const aiAbsSlipRad = Math.abs(aiSlipSignedRad);
-        if (aiAbsSlipRad > 0.20 && aiState.speed > 5) {
+        /* E. SMOKE & SKIDMARK BOT (Jalur A hemat + legacy swirl). */
+        if (Math.abs(aiSlipSignedRad) > 0.2 && bot.speed > 5) {
           const aiFwdX = Math.sin(aiState.heading);
           const aiFwdZ = Math.cos(aiState.heading);
           const aiRightX = Math.cos(aiState.heading);
@@ -3335,7 +3256,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           if (smokeCfg.amount > 0) {
             const botSmokeIntensity = Math.min(
               1,
-              (aiAbsSlipRad / 0.7) * Math.min(1, aiState.speed / 12.0)
+              (Math.abs(aiSlipSignedRad) / 0.7) * Math.min(1, bot.speed / 12.0)
             );
             const botRate = (12 + botSmokeIntensity * 12) * smokeCfg.amount;
             smokeEmitterState.aiSlideAcc += dt * botRate;
@@ -3360,7 +3281,7 @@ export const RCDriftCanvas3D: React.FC<RCDriftCanvas3DProps> = ({
           }
         }
 
-        // G. Tsuiso Proximity Laser Tether & Tandem Scoring
+        /* F. TSUISO PROXIMITY TETHER & TANDEM SCORING. */
         const rawDist = state.pos.distanceTo(aiState.pos);
         tsuisoDistanceM = Number((rawDist * 0.42).toFixed(1));
 

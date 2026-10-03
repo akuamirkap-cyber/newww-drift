@@ -117,6 +117,76 @@ KALAU MAU UBAH
 - Ganti teks/judul/warna: edit MainMenu.tsx.
 - Tambah mode/mobil: tambah item di MODE_CARDS / SKYLINE_CHOICES + tipe bodinya.`,
   },
+  {
+    id: 'bot-ai-pro',
+    tabLabel: 'Bot AI Pro',
+    title: 'BOT AI PRO v2 (SMOOTH LINE DRIVER + SOFT CONTACT)',
+    subtitle: 'File: src/games/sakura_rc/game/proBot.ts • Dipakai: RCDriftCanvas3D.tsx bagian 7 & 8B • Tes: scripts/sakura_probot_test.mts',
+    body: `TUJUAN
+Bot RC 1:10 yang luwes (tidak kaku), nurut jalur, tidak mepet pembatas, masih bisa
+ditabrak/disenggol, dan tidak gampang ditebak karena tiap sesi punya kepribadian.
+
+1. TRACK SAMPLER (precomputed, bebas lag)
+- TrackSampler menyimpan posisi + tangent + normal + kelengkungan tiap titik spline
+  (900 titik Aula, 1800 titik Haruna) plus spatial hash 4 m untuk proyeksi O(1).
+- Bot tidak lagi memanggil puluhan curve.getPointAt()/getTangentAt() per frame
+  (sumber utama GC hitch / "lag kaku" pada versi lama).
+
+2. LANE PLAN (garis balap, bukan garis dinding)
+- offset[i] = -sign(kurvatur halus) * limit  -> garis out-in-out (apex) ala drift.
+- Clipping zone didekati dengan bump Gaussian (stand-off 1.6 m dari dinding) supaya
+  bot tetap memburu zona skor tanpa menempel pembatas.
+- 4 pass smoothing + clamp limit, dengan limit = setengah lebar track - margin mobil
+  - margin dinding personality. Contoh Aula (lebar 10.4 m): limit ~2.7-3.2 m,
+  sementara dinding di 5.2 m => body bot selalu > 0.6 m dari pembatas.
+
+3. DRIVER (integrator orde-2, substepped 120 Hz)
+- Jalan: feed-forward kelengkungan (c_mid*0.6 + c_far*0.4) + pure-pursuit paralel
+  look-ahead (3.4 m + 0.4*v), dibatasi yaw-rate aLat/speed dan akselerasi yaw.
+- Drift: sudut slip ditargetkan dari beban corner (cornerLoad), lalu diintegrasi
+  spring-damper (omega ~4.5 rad/s, zeta ~0.9) => transisi manji luwes, tidak patah.
+- Kecepatan: vLimit = sqrt(aLat / kurvatur) dihitung sepanjang jarak pengereman +
+  jerk-limited throttle/brake (damp 6.5/s) => tidak ada on/off mendadak.
+- Dinding: tekanan prediktif (proyeksi lateral + 0.42 detik) + geser halus +
+  scrub kecepatan; clamp keras hanya backstop darurat.
+
+4. KEPRIBADIAN & VARIASI (anti gampang ditebak)
+- Personality di-seed per sesi: aggression, smoothness, lineGain, wanderAmp,
+  feintLove, reaction, wallMargin, driftLove.
+- Mood lambat (noise 1D) menggeser pace +-5%; tiap lap lineScale berubah +-7%;
+  di trek lurus bot kadang memberi feint manji (envelope sinus, bukan random frame).
+
+5. PINTAR KALAU KELUAR JALUR
+- Mode state machine: start -> line -> recover -> unstick (fallback).
+- recover: titik rejoin dicari di depan, look-ahead diperpanjang & sudut masuk
+  dibatasi, kecepatan 0.74x (0.55x kalau off-track), slip 0.34x, lalu blend balik.
+- unstick: kalau macet (<1.1 m/s selama 1.4 detik) bot mundur halus 0.85 detik
+  sambil setir berlawanan, lalu maju lagi menuju garis.
+- Traffic awareness: kalau pemain tepat di depan <10 m bot lift halus (tidak
+  menghajar), kalau pemain menempel di belakang bot menutup garis sedikit.
+
+6. KONTAK DUA ARAH YANG HALUS (resolveRcContact)
+- 3 sphere per mobil (bumper depan, chassis, bumper belakang).
+- Separasi posisi dibatasi kecepatan 1.5 m/s (maks ~2.5 cm/frame) => tidak teleport.
+- Impuls = -(1+rest) * kecepatan mendekat * 0.5, dibatasi 5.2 m/s, ditambah friksi
+  tangensial (0.45) => bisa disenggol/didorong, tapi tidak mental.
+- Spin PIT dihitung dari offset titik tumbukan, dibatasi +-0.95 rad/s, dan bot
+  memasukkannya ke slipRate (kicked) supaya body terpelintir natural lalu pulih.
+- Klasifikasi kontak: rub (<2.0), bump (<4.6), clash (>=4.6) -> callout + suara.
+
+7. CARA UJI (offline, tanpa browser)
+- npx tsx scripts/sakura_probot_test.mts
+- 28+ assertion: 3 lap di 60/30/20 fps, max lateral vs koridor (bukan mepet dinding),
+  jerk/steer-rate/chatte, rejoin setelah dibuang keluar jalur, solver kontak
+  (impuls, spin, separasi). Verifikasi manual terakhir: ALL PASS.
+
+KALAU MAU UBAH
+- Pace bot (legend/pro/chill): BOT_PACE_CONFIG di proBot.ts (dipakai juga oleh
+  pilihan BOT AI di MainMenu).
+- Garis balap: LanePlanOptions.lineGain / zoneGain; lebar koridor:
+  personality.wallMargin (makin besar makin jauh dari pembatas).
+- Kehalusan: personality.smoothness dan konstanta spring-damper slip (20.5 / 8.4).`,
+  },
 ];
 
 export const FULL_DESIGN_DOC_TEXT: string = DESIGN_DOC_SECTIONS.map(

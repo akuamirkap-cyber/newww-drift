@@ -47,7 +47,7 @@ export interface SuspensionSetup {
   rollSensitivity: number;  // 0.5 to 2.0 - Weight-shift body roll & dive amplitude
 }
 
-export type BotPace = 'pro' | 'chill';
+export type BotPace = 'pro' | 'chill' | 'legend';
 
 export interface TuningSetup {
   gyroGain: number;         // 40 to 100 (%) - Counter-steer stability assist
@@ -61,7 +61,7 @@ export interface TuningSetup {
   tireCompound: TireCompound;
   autoThrottle: boolean;    // Assist steering only; throttle still requires W / throttle button
   speedLevel?: SpeedLevel;  // Normal, sedang, atau 2x speed profile
-  botPace?: BotPace;        // AI rival pace: 'pro' (24.8) vs 'chill' (19.5)
+  botPace?: BotPace;        // AI rival pace: 'legend' (27.2), 'pro' (24.8), 'chill' (19.5)
   soundMode?: SoundMode;    // RB26DETT Scale Sound Module vs Silky Sensored Brushless
   smokeConfig?: SmokeConfig;// 5-Stage Drift Smoke Pipeline configuration
   suspension?: SuspensionSetup; // Pro 1:10 RC Drift Coilover & Geometry Setup
